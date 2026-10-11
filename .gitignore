@@ -20,3 +20,9 @@ __pycache__/
 *.pyc
 *.bak
 .pytest_cache/
+
+# Test & validation outputs
+tf-output.json
+*.csv
+article_assets/
+
