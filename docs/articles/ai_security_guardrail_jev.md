@@ -198,8 +198,31 @@ class SafeAgentRunner:
 
 ぜひ以下のようなアイデアの足がかり（一旦）としてみてください。
 
-### アイデア 1: MCP (Model Context Protocol) サーバーの Proxy 保護
-Claude Desktop や Cursor で使われる MCP サーバーの手前にこのガードレールを配置し、エージェントが呼び出すツール引数をインライン検査する「MCP Firewall」として運用する。
+### アイデア 1: MCP (Model Context Protocol) サーバーの Proxy 保護（MCP Firewall）
+Claude Desktop や Cursor で使われる MCP サーバーの手前にこのガードレールを配置し、エージェントが呼び出すツール引数をインライン検査する「MCP Firewall Proxy」として運用する。
+
+```mermaid
+flowchart TD
+    Client["💻 Claude Desktop / Cursor<br/>(MCP Client)"]
+    
+    subgraph Proxy["🛡️ MCP Firewall Proxy (mcp_firewall.py)"]
+        direction TB
+        Detect["1. tools/call をリアルタイム検知"]
+        Evaluate["2. Jev型 System 1 判定 (0.001ms)"]
+        Detect --> Evaluate
+    end
+
+    Target["🖥️ ターゲット MCP サーバー<br/>(Filesystem / Shell / DB)"]
+    Alert["🚨 即時遮断 (isError: true)<br/>& 監査ログ発報"]
+
+    Client -- "stdin / stdout (JSON-RPC 2.0)" --> Proxy
+    Evaluate -- "BLOCK (危険操作)" --> Alert
+    Alert -. "MCPエラー応答" .-> Client
+    Evaluate -- "ALLOW (安全操作)" --> Target
+    Target -. "実行結果" .-> Client
+```
+
+クライアントと実サーバーの間の標準入出力（stdio JSON-RPC）に透過的に割り込み、危険な操作はターゲットに渡さず `isError: true` を即座に返すことで、背後のファイルシステムやDBを無傷で保護できます（付属の `mcp_firewall.py` で実装済み）。
 
 ### アイデア 2: RAG / ナレッジベースのインプット・アウトプット検査
 社内ドキュメントを検索するRAGシステムにおいて、プロンプトに個人情報（PII）やAPIキーが含まれていないかをJevモデルで高速判定し、自動マスキングまたは拒絶する。

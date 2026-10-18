@@ -54,20 +54,25 @@ python3 demo.py
 
 Claude Desktop や Cursor 等の AI クライアントと、実 MCP サーバーの間に透過的に割り込み、悪意あるツール呼び出しを即座にブロックする実用プロキシです。
 
-```text
-[Claude Desktop / Cursor]
-           │
-           │ stdin / stdout (JSON-RPC 2.0)
-           ▼
-┌─────────────────────────────────────────────────────────┐
-│ 🛡️ MCP Firewall Proxy (mcp_firewall.py)                 │
-│ ・"method": "tools/call" をリアルタイム検知              │
-│ ・Jev型 System 1 ガードレールで引数をミリ秒判定 (0.001ms)│
-│ ・危険な操作はターゲットに送らず isError: true で即遮断  │
-└──────────────────────────┬──────────────────────────────┘
-                           │ 許可された安全な呼出のみ透過
-                           ▼
-[ターゲット MCP サーバー (Filesystem / Shell / DB)]
+```mermaid
+flowchart TD
+    Client["💻 Claude Desktop / Cursor<br/>(MCP Client)"]
+    
+    subgraph Proxy["🛡️ MCP Firewall Proxy (mcp_firewall.py)"]
+        direction TB
+        Detect["1. tools/call をリアルタイム検知"]
+        Evaluate["2. Jev型 System 1 判定 (0.001ms)"]
+        Detect --> Evaluate
+    end
+
+    Target["🖥️ ターゲット MCP サーバー<br/>(Filesystem / Shell / DB)"]
+    Alert["🚨 即時遮断 (isError: true)<br/>& 監査ログ発報"]
+
+    Client -- "stdin / stdout (JSON-RPC 2.0)" --> Proxy
+    Evaluate -- "BLOCK (危険操作)" --> Alert
+    Alert -. "MCPエラー応答" .-> Client
+    Evaluate -- "ALLOW (安全操作)" --> Target
+    Target -. "実行結果" .-> Client
 ```
 
 ### 1. ローカルテストの実行
