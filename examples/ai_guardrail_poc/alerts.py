@@ -24,8 +24,9 @@ class AlertNotifier:
     Supports console formatting, JSON audit logging, and webhook mocks.
     """
 
-    def __init__(self, log_file: Optional[str] = "guardrail_audit.log"):
+    def __init__(self, log_file: Optional[str] = "guardrail_audit.log", output_stream=None):
         self.log_file = log_file
+        self.stream = output_stream or sys.stdout
 
     def emit_alert(self, command: str, decision: Dict[str, Any], caller_context: Optional[Dict[str, Any]] = None):
         """Dispatch high-priority alert notification."""
@@ -42,20 +43,20 @@ class AlertNotifier:
             "caller": caller_context or {"agent_id": "ai-assistant-01", "role": "developer"}
         }
 
-        # 1. Print formatted alert banner
+        # 1. Print formatted alert banner to configured stream (e.g. stderr for MCP)
         action = decision.get("action")
         if action == "BLOCK":
-            print(f"\n{BOLD}{RED}🚨 [SECURITY ALERT: COMMAND BLOCKED]{RESET}")
-            print(f"{RED}├─ Reason      : {decision.get('reason')}{RESET}")
-            print(f"{RED}├─ Category    : {decision.get('risk_category')}{RESET}")
-            print(f"{RED}├─ Confidence  : {decision.get('confidence') * 100:.1f}%{RESET}")
-            print(f"{RED}├─ Latency     : {decision.get('latency_ms')} ms (System 1 Instant Decision){RESET}")
-            print(f"{RED}└─ Command     : `{command}`{RESET}\n")
+            print(f"\n{BOLD}{RED}🚨 [SECURITY ALERT: COMMAND BLOCKED]{RESET}", file=self.stream)
+            print(f"{RED}├─ Reason      : {decision.get('reason')}{RESET}", file=self.stream)
+            print(f"{RED}├─ Category    : {decision.get('risk_category')}{RESET}", file=self.stream)
+            print(f"{RED}├─ Confidence  : {decision.get('confidence') * 100:.1f}%{RESET}", file=self.stream)
+            print(f"{RED}├─ Latency     : {decision.get('latency_ms')} ms (System 1 Instant Decision){RESET}", file=self.stream)
+            print(f"{RED}└─ Command     : `{command}`{RESET}\n", file=self.stream)
         elif action == "ESCALATE":
-            print(f"\n{BOLD}{YELLOW}⚠️  [SECURITY WARNING: HUMAN REVIEW REQUIRED]{RESET}")
-            print(f"{YELLOW}├─ Reason      : {decision.get('reason')}{RESET}")
-            print(f"{YELLOW}├─ Confidence  : {decision.get('confidence') * 100:.1f}%{RESET}")
-            print(f"{YELLOW}└─ Command     : `{command}`{RESET}\n")
+            print(f"\n{BOLD}{YELLOW}⚠️  [SECURITY WARNING: HUMAN REVIEW REQUIRED]{RESET}", file=self.stream)
+            print(f"{YELLOW}├─ Reason      : {decision.get('reason')}{RESET}", file=self.stream)
+            print(f"{YELLOW}├─ Confidence  : {decision.get('confidence') * 100:.1f}%{RESET}", file=self.stream)
+            print(f"{YELLOW}└─ Command     : `{command}`{RESET}\n", file=self.stream)
 
         # 2. Append to audit log
         if self.log_file:
