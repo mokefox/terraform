@@ -50,6 +50,60 @@ python3 demo.py
 
 ---
 
+## 🛡️ 発展実装: MCP (Model Context Protocol) Firewall Proxy
+
+Claude Desktop や Cursor 等の AI クライアントと、実 MCP サーバーの間に透過的に割り込み、悪意あるツール呼び出しを即座にブロックする実用プロキシです。
+
+```mermaid
+flowchart TD
+    Client["💻 Claude Desktop / Cursor<br/>(MCP Client)"]
+    
+    subgraph Proxy["🛡️ MCP Firewall Proxy (mcp_firewall.py)"]
+        direction TB
+        Detect["1. tools/call をリアルタイム検知"]
+        Evaluate["2. Jev型 System 1 判定 (0.001ms)"]
+        Detect --> Evaluate
+    end
+
+    Target["🖥️ ターゲット MCP サーバー<br/>(Filesystem / Shell / DB)"]
+    Alert["🚨 即時遮断 (isError: true)<br/>& 監査ログ発報"]
+
+    Client -- "stdin / stdout (JSON-RPC 2.0)" --> Proxy
+    Evaluate -- "BLOCK (危険操作)" --> Alert
+    Alert -. "MCPエラー応答" .-> Client
+    Evaluate -- "ALLOW (安全操作)" --> Target
+    Target -. "実行結果" .-> Client
+```
+
+### 1. ローカルテストの実行
+Claude Desktop や Node.js がなくても、付属のモックサーバーで E2E テストを実行できます。
+
+```bash
+python3 test_mcp_firewall.py
+```
+
+### 2. Claude Desktop での実際の設定例
+`~/Library/Application Support/Claude/claude_desktop_config.json` に以下のように設定することで、既存の MCP サーバーを保護できます：
+
+```json
+{
+  "mcpServers": {
+    "protected-everything": {
+      "command": "python3",
+      "args": [
+        "/path/to/examples/ai_guardrail_poc/mcp_firewall.py",
+        "--",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-everything"
+      ]
+    }
+  }
+}
+```
+
+---
+
 ## 🛡️ 多層防御（Defense-in-Depth）における位置づけ
 
 AIによる動的ガードレールは非常に強力ですが、**「AI判定単体」に依存してはいけません**。
