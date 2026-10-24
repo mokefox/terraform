@@ -320,6 +320,48 @@ flowchart LR
 
 ---
 
+### ⑦【SOAR & ChatOps層】検知からミリ秒での自動封じ込め ＆ Slack Block Kit 即時発報
+
+セキュリティインシデントにおいて、「人間がアラートに気づくまでのラグ（数分〜数時間）」は致命傷になります。
+
+そのため本アーキテクチャでは、**「①エッジ (AWS WAF)」「②コンテナ (Falco)」「③AIエージェント (Jev Guardrail)」の全レイヤーで自律的封じ込めを実行しつつ、Slack へ Block Kit 形式で即時通知する統合 SOAR パイプライン** を組み込んでいます。
+
+```mermaid
+flowchart TD
+    subgraph Edge ["1. エッジ / クラウド層 (AWS)"]
+        WAF[AWS WAF v2<br/>Tor/SQLi/RateLimit] -->|CloudWatch Alarm| SNS[Amazon SNS]
+        SNS --> Lambda[SOAR Lambda<br/>Go Notifier]
+    end
+
+    subgraph Runtime ["2. ランタイム層 (Kubernetes)"]
+        Falco[Falco eBPF<br/>不正シェル/特権昇格] -->|gRPC/HTTP| Talon[Falco Talon<br/>ミリ秒封じ込め]
+        Talon -->|Pod Kill / Isolate| Cluster[K8s Cluster]
+        Falco --> Sidekick[FalcoSidekick]
+    end
+
+    subgraph AI ["3. AIエージェント層 (MCP)"]
+        Guard[Jev Guardrail<br/>危険コマンド検知] -->|インライン遮断| Agent[AI Agent]
+    end
+
+    subgraph ChatOps ["4. 統合インシデント通知 (Slack)"]
+        Lambda -->|Block Kit POST| Slack[🚨 #security-incidents<br/>リッチカード・封じ込め結果・調査リンク]
+        Sidekick -->|Block Kit POST| Slack
+        Guard -->|Block Kit POST| Slack
+    end
+```
+
+:::message
+**用語解説: ChatOps & SOAR (Security Orchestration, Automation and Response)**  
+セキュリティの脅威検知から、アラート通知、通信遮断、コンテナ強制終了などのインシデント対応アクションを人手を介さず自動化し、Slack などのチャットツールでリアルタイムに可視化・連携する仕組みです。
+:::
+
+1. **Kubernetes ランタイム (Falco + Talon)**: 不正シェル起動を検知した瞬間、0.05秒で侵害 Pod を強制終了し、Slack へ「🛑 Pod `xyz` を即座に強制終了しました」と通知。
+2. **エッジ層 (AWS WAF + Lambda)**: Tor 出口ノードやレート制限超過を検知した瞬間、IP・国・URI・ルール名をリッチカード形式で Slack 発報。
+3. **AI エージェント層 (Jev Guardrail)**: 破壊的コマンド（`rm -rf /`）や機密流出 curl をミリ秒でインターセプトし、Slack へ「🚨 危険コマンドの実行をインライン遮断しました」とアラート発報。
+
+
+---
+
 ## 4. リクエスト処理シーケンス（全体がどう連携するか）
 
 これらすべての防御壁がリクエスト処理の中でどのように連携するのかをシーケンス図にまとめました。
