@@ -1,0 +1,84 @@
+# ==============================================================================
+# Layer: Kubernetes Pod Hardening with SHA256 Digest Pinning
+# 対策: タグ上書き・サプライチェーン攻撃防止, 権限昇格防止, ReadOnly RootFS
+# ==============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secure-go-backend
+  namespace: production
+  labels:
+    app.kubernetes.io/name: secure-go-backend
+    app.kubernetes.io/part-of: zero-trust-security-architecture
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: secure-go-backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: secure-go-backend
+      annotations:
+        seccomp.security.alpha.kubernetes.io/pod: "runtime/default"
+        container.apparmor.security.beta.kubernetes.io/backend: "runtime/default"
+    spec:
+      automountServiceAccountToken: false
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532 # nonroot
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: backend
+          # SHA256 ダイジェストによる完全ピン留め (Mutable な latest や v1.0.0 タグは使用しない)
+          image: secure-repo.example.corp/apps/go-backend@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+          imagePullPolicy: IfNotPresent
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop:
+                - ALL
+
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+
+      volumes:
+        - name: tmp-volume
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi

@@ -1,0 +1,61 @@
+# ==============================================================================
+# Layer: Container Hardening - SHA256 Digest Pinning & Immutable Supply Chain
+# 対策: サプライチェーン攻撃防止, タグ差し替え攻撃防止, 再現可能ビルド (Hermetic Build)
+# ==============================================================================
+
+# --- Stage 1: Build Stage (SHA256 ダイジェストで完全ピン留め) ---
+# 例: golang:1.23.0-alpine3.20 の不変ダイジェスト
+FROM golang:1.23.0-alpine3.20@sha256:405f694e923e51a66a12b23a9d20c5c0d5cb2e32f7a4e69a0b0d343469e382d3 AS builder
+
+WORKDIR /build
+
+# OS パッケージのバージョン固定
+RUN apk update && \
+    apk add --no-cache \
+    ca-certificates=20240705-r0 \
+    tzdata=2024a-r0 \
+    git=2.45.2-r0
+
+# 依存モジュールの真正性検証 (go.sum & GOSUMDB)
+COPY 06_app_backend/go.mod 06_app_backend/go.sum ./
+RUN go mod download && \
+    go mod verify
+
+# ソースコードのコピー
+COPY 06_app_backend/ .
+
+# 静的バイナリの再現可能ビルド (CGO無効化, トリムパス, デバッグ情報除去)
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -trimpath \
+    -a -installsuffix cgo \
+    -ldflags="-s -w -buildid= -X main.version=1.0.0 -extldflags '-static'" \
+    -o /build/server .
+
+# 最小実行ユーザーの作成 (UID: 65532 nonroot)
+RUN echo "nonroot:x:65532:65532:nonroot:/:/sbin/nologin" > /build/passwd.minimal
+
+# --- Stage 2: Runtime Stage (Distroless Static Non-Root SHA256 ダイジェスト固定) ---
+# 例: gcr.io/distroless/static:nonroot の不変ダイジェスト
+FROM gcr.io/distroless/static:nonroot@sha256:6ec5aa99dc33c56d5b79dc1a68d6a14fc66367ccd8581314f324c7250f2b861a
+
+LABEL maintainer="security-team@example.corp" \
+      org.opencontainers.image.source="https://github.com/example/security-architecture" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      description="SLSA Level 3 Compliant Hardened Container"
+
+WORKDIR /app
+
+# CA証明書 & タイムゾーン
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=builder /build/passwd.minimal /etc/passwd
+
+# 静的バイナリのみ配置
+COPY --from=builder --chown=nonroot:nonroot /build/server /app/server
+
+# 非root実行
+USER nonroot:nonroot
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/server"]
