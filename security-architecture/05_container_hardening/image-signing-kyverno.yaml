@@ -1,0 +1,91 @@
+# ==============================================================================
+# Layer: Admission Controller - Kyverno Supply Chain & SBOM Policy (SLSA Level 3)
+# 対策: タグ指定の禁止(Digest強制), Cosign署名検証, SBOMアテスト必須化
+# ==============================================================================
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-image-supply-chain
+  annotations:
+    policies.kyverno.io/title: Verify Digest Pinning, Signature, and SBOM Attestation
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: Critical
+    policies.kyverno.io/description: >
+      Enforces that all images must use SHA256 immutable digests, be signed by Cosign,
+      and contain a valid SPDX/CycloneDX SBOM attestation before deployment.
+spec:
+  validationFailureAction: Enforce
+  webhookTimeoutSeconds: 30
+  rules:
+    # --------------------------------------------------------------------------
+    # ルール 1: 可変タグ (Mutable Tags) のデプロイ禁止 & SHA256 ダイジェストの強制
+    # --------------------------------------------------------------------------
+    - name: require-image-digest
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - production
+      validate:
+        message: "Images must be specified using an immutable SHA256 digest (e.g. image@sha256:...), mutable tags are strictly forbidden."
+        pattern:
+          spec:
+            containers:
+              - image: "*@sha256:*"
+
+    # --------------------------------------------------------------------------
+    # ルール 2: Cosign による電子署名の検証
+    # --------------------------------------------------------------------------
+    - name: verify-image-signature
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - production
+      verifyImages:
+        - imageReferences:
+            - "secure-repo.example.corp/*"
+          attestors:
+            - entries:
+                - keys:
+                    publicKeys: |
+                      -----BEGIN PUBLIC KEY-----
+                      MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4bVzXvJ8i0w...
+                      ...[Corporate KMS / Sigstore Public Key]...
+                      -----END PUBLIC KEY-----
+          mutateDigest: true
+
+    # --------------------------------------------------------------------------
+    # ルール 3: SBOM (Software Bill of Materials) アテストの存在検証
+    #           SBOM が OCI レジストリに添付されていないイメージはデプロイを即時拒否
+    # --------------------------------------------------------------------------
+    - name: verify-sbom-attestation
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - production
+      verifyImages:
+        - imageReferences:
+            - "secure-repo.example.corp/*"
+          attestations:
+            - type: https://spdx.dev/Document
+              attestors:
+                - entries:
+                    - keys:
+                        publicKeys: |
+                          -----BEGIN PUBLIC KEY-----
+                          MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4bVzXvJ8i0w...
+                          ...[Corporate KMS / Sigstore Public Key]...
+                          -----END PUBLIC KEY-----
+              conditions:
+                - all:
+                    - key: "{{ spdxVersion }}"
+                      operator: Equals
+                      value: "SPDX-2.3"

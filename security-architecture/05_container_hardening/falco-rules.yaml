@@ -1,0 +1,56 @@
+# ==============================================================================
+# Layer: Falco Runtime Threat Detection & Containment Rules
+# 対策: 権限昇格、不正シェル起動、ファイル改竄、C2通信の即時検知と封じ込め
+# ==============================================================================
+
+- custom_rule:
+    name: Terminal Shell in Production Container
+    desc: Detect shell spawn (sh, bash, zsh) inside production container
+    condition: >
+      spawned_process and container and
+      container.image.repository startswith "secure-repo.example.corp" and
+      proc.name in (bash, sh, zsh, ksh, ash)
+    output: >
+      CRITICAL: Unauthorized shell spawned in container 
+      (user=%user.name user_loginuid=%user.loginuid proc=%proc.name cmdline=%proc.cmdline 
+      container_id=%container.id container_name=%container.name image=%container.image.repository)
+    priority: CRITICAL
+    tags: [container, mitre_execution, lateral_movement]
+
+- custom_rule:
+    name: Detect Privilege Escalation Attempt
+    desc: Detect attempts to change UID/GID or execute setuid binaries
+    condition: >
+      evt.type in (setuid, setgid, seteuid, setegid, capset) and
+      container and not proc.name in (authorized_daemons)
+    output: >
+      WARNING: Privilege escalation attempt detected 
+      (proc=%proc.name user=%user.name target_uid=%evt.rawres container_name=%container.name)
+    priority: HIGH
+    tags: [container, mitre_privilege_escalation]
+
+- custom_rule:
+    name: Read Sensitive Kubernetes ServiceAccount Token
+    desc: Detect non-standard processes reading K8s serviceaccount tokens
+    condition: >
+      open_read and container and
+      fd.name startswith "/var/run/secrets/kubernetes.io/serviceaccount" and
+      not proc.name in (server, app)
+    output: >
+      CRITICAL: Suspicious access to Kubernetes ServiceAccount token 
+      (proc=%proc.name file=%fd.name container=%container.name)
+    priority: CRITICAL
+    tags: [container, credential_access]
+
+- custom_rule:
+    name: Outbound Connection to Tor / Malicious C2 IP
+    desc: Detect outbound network connections initiated by container to unknown external ports
+    condition: >
+      outbound and container and
+      not fd.sport in (80, 443, 5432, 53) and
+      not fd.sip in (internal_subnets)
+    output: >
+      CRITICAL: Abnormal outbound network connection from container 
+      (src_ip=%fd.cip dst_ip=%fd.rip dst_port=%fd.rport proc=%proc.name container=%container.name)
+    priority: CRITICAL
+    tags: [container, command_and_control, data_exfiltration]

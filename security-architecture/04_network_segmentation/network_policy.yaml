@@ -1,0 +1,69 @@
+# ==============================================================================
+# Layer 3/4: Kubernetes NetworkPolicies (マイクロセグメンテーション)
+# 対策: コンテナ侵害時の横展開 (Lateral Movement) 完全阻止
+# ==============================================================================
+
+# 1. デフォルト全拒否ポリシー (Default Deny Ingress & Egress)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: production
+spec:
+  podSelector: {} # 名前空間内の全Podに適用
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+# 2. アプリケーション Pod 用ホワイトリストポリシー
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-service-network-policy
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: secure-go-backend
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # Ingress: Ingress Controller (Ingress Gateway) からの 8080 ポートのみ許可
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: controller
+      ports:
+        - protocol: TCP
+          port: 8080
+
+  # Egress: 必要な宛先のみを厳格に許可
+  egress:
+    # (a) CoreDNS への名前解決のみ許可 (ポート 53 UDP/TCP)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # (b) Database Pod への PostgreSQL 接続のみ許可 (ポート 5432)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-db
+      ports:
+        - protocol: TCP
+          port: 5432

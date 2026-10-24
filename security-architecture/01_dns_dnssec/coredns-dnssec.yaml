@@ -1,0 +1,51 @@
+# ==============================================================================
+# Kubernetes CoreDNS: DNSSEC 検証 & DoH/DoT 暗号化名前解決設定
+# 防御: キャッシュポイズニング防止、DNS通信の盗聴・中間者改竄防止
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns
+  namespace: kube-system
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health {
+            lameduck 5s
+        }
+        ready
+
+        # 1. Kubernetes 内部名前解決
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+            pods insecure
+            fallthrough in-addr.arpa ip6.arpa
+            ttl 30
+        }
+
+        # 2. Prometheus メトリクス監視
+        prometheus :9153
+
+        # 3. キャッシュ設定 (DoS対策・TTL制限)
+        cache 30 {
+            success 10000 300
+            denial 10000 60
+            prefetch 10 1m
+        }
+
+        # 4. DNSSEC 検証 (DNSSEC署名の検証を行う)
+        dnssec {
+            # ゾーンごとの信頼のアンカー(Trust Anchor)を検証
+        }
+
+        # 5. 上流リゾルバへの暗号化転送 (DoT: DNS over TLS)
+        forward . tls://1.1.1.1 tls://8.8.8.8 {
+            tls_servername cloudflare-dns.com
+            health_check 5s
+            max_fails 3
+        }
+
+        loop
+        reload
+        loadbalance
+    }

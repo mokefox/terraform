@@ -1,0 +1,55 @@
+# ==============================================================================
+# Layer: Falco Sidekick Automated Threat Containment (SOAR)
+# 現場の必須要件: アラート検知からミリ秒単位での侵害Pod自動隔離・Kill
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falcosidekick-config
+  namespace: falco
+data:
+  config.yaml: |
+    # 1. SIEM & アラート通知連携
+    slack:
+      webhookurl: "https://hooks.slack.com/services/XXX/YYY/ZZZ"
+      minimumpriority: "warning"
+      messageformat: "[SECURITY ALERT] {{ .Rule }} on Pod: {{ .OutputFields.container_name }} (Namespace: {{ .OutputFields.k8s_ns_name }})"
+    
+    datadog:
+      apikey: "DATADOG_API_KEY"
+      minimumpriority: "notice"
+
+    # 2. 自動封じ込め (Falco Talon / Kubernetes API連携)
+    # CRITICAL アラート (不正シェル起動、特権昇格、C2通信) 発生時に即時 Pod 削除・隔離
+    webhook:
+      address: "http://falco-talon.falco.svc.cluster.local:2803"
+      minimumpriority: "critical"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-talon-rules
+  namespace: falco
+data:
+  rules.yaml: |
+    # ルール 1: 不正シェルや特権昇格を検知した場合、侵害されたPodを即座に強制終了
+    - name: Terminate Compromised Pod
+      match:
+        rules:
+          - "Terminal Shell in Production Container"
+          - "Detect Privilege Escalation Attempt"
+      action:
+        name: "kubernetes:terminate"
+        parameters:
+          grace_period_seconds: 0
+
+    # ルール 2: 不正C2通信を検知した場合、NetworkPolicyでネットワークを即座に完全遮断 (Isolate)
+    - name: Isolate Pod on C2 Detection
+      match:
+        rules:
+          - "Outbound Connection to Tor / Malicious C2 IP"
+      action:
+        name: "kubernetes:networkpolicy"
+        parameters:
+          action: "isolate"

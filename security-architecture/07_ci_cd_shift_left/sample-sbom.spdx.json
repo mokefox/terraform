@@ -1,0 +1,42 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "name": "secure-repo.example.corp/apps/go-backend:1.0.0",
+  "packages": [
+    {
+      "name": "golang",
+      "versionInfo": "1.23.0",
+      "licenseConcluded": "BSD-3-Clause",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/std@1.23.0"
+        }
+      ]
+    },
+    {
+      "name": "ca-certificates",
+      "versionInfo": "20240705-r0",
+      "licenseConcluded": "MPL-2.0",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:alpine/ca-certificates@20240705-r0?arch=x86_64"
+        }
+      ]
+    },
+    {
+      "name": "tzdata",
+      "versionInfo": "2024a-r0",
+      "licenseConcluded": "Public-Domain",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:alpine/tzdata@2024a-r0?arch=x86_64"
+        }
+      ]
+    }
+  ]
+}
