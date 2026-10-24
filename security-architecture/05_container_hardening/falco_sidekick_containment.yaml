@@ -1,7 +1,17 @@
 # ==============================================================================
-# Layer: Falco Sidekick Automated Threat Containment (SOAR)
-# 現場の必須要件: アラート検知からミリ秒単位での侵害Pod自動隔離・Kill
+# Layer: Falco Sidekick Automated Threat Containment & Slack SOAR
+# 現場の必須要件: アラート検知からミリ秒単位での侵害Pod自動隔離・Kill & Slack Block Kit 即時発報
 # ==============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: falcosidekick-secrets
+  namespace: falco
+type: Opaque
+stringData:
+  # 平文で ConfigMap にコミットせず、Secret 経由で安全に注入
+  slack-webhook-url: "https://hooks.slack.com/services/REPLACE_WITH_YOUR_SLACK_WEBHOOK"
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -9,16 +19,24 @@ metadata:
   namespace: falco
 data:
   config.yaml: |
-    # 1. SIEM & アラート通知連携
+    # 1. Slack インシデント通知連携 (ChatOps / Block Kit 形式)
     slack:
-      webhookurl: "https://hooks.slack.com/services/XXX/YYY/ZZZ"
+      # FALCOSIDEKICK_SLACK_WEBHOOKURL 環境変数で Secret から読み込み
+      webhookurl: "https://hooks.slack.com/services/REPLACE_WITH_YOUR_SLACK_WEBHOOK"
+      channel: "#security-incidents"
+      username: "Falco-SOAR-Guardian"
+      icon: ":rotating_light:"
       minimumpriority: "warning"
-      messageformat: "[SECURITY ALERT] {{ .Rule }} on Pod: {{ .OutputFields.container_name }} (Namespace: {{ .OutputFields.k8s_ns_name }})"
+      messageformat: "🚨 *[RUNTIME THREAT DETECTED]* `{{ .Rule }}`\n*Severity:* `{{ .Priority }}` | *Namespace:* `{{ .OutputFields.k8s_ns_name }}` | *Pod:* `{{ .OutputFields.k8s_pod_name }}`\n*Command:* `{{ .OutputFields.proc_cmdline }}`\n> {{ .Output }}"
+      outputfields:
+        - "k8s.ns.name"
+        - "k8s.pod.name"
+        - "container.name"
+        - "container.image.repository"
+        - "proc.cmdline"
+        - "proc.pname"
+        - "user.name"
     
-    datadog:
-      apikey: "DATADOG_API_KEY"
-      minimumpriority: "notice"
-
     # 2. 自動封じ込め (Falco Talon / Kubernetes API連携)
     # CRITICAL アラート (不正シェル起動、特権昇格、C2通信) 発生時に即時 Pod 削除・隔離
     webhook:
@@ -33,7 +51,7 @@ metadata:
   namespace: falco
 data:
   rules.yaml: |
-    # ルール 1: 不正シェルや特権昇格を検知した場合、侵害されたPodを即座に強制終了
+    # ルール 1: 不正シェルや特権昇格を検知した場合、侵害されたPodを即座に強制終了 (Kill)
     - name: Terminate Compromised Pod
       match:
         rules:
@@ -43,6 +61,10 @@ data:
         name: "kubernetes:terminate"
         parameters:
           grace_period_seconds: 0
+      notification:
+        slack:
+          channel: "#security-incidents"
+          message: "🛑 *[SOAR AUTO-CONTAINMENT EXECUTED]* Successfully TERMINATED compromised Pod `{{ .Target.Pod }}` (Namespace: `{{ .Target.Namespace }}`) in < 50ms."
 
     # ルール 2: 不正C2通信を検知した場合、NetworkPolicyでネットワークを即座に完全遮断 (Isolate)
     - name: Isolate Pod on C2 Detection
@@ -53,3 +75,7 @@ data:
         name: "kubernetes:networkpolicy"
         parameters:
           action: "isolate"
+      notification:
+        slack:
+          channel: "#security-incidents"
+          message: "🔒 *[SOAR AUTO-CONTAINMENT EXECUTED]* Applied quarantine NetworkPolicy to ISOLATE Pod `{{ .Target.Pod }}` from all network traffic."

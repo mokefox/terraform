@@ -29,29 +29,29 @@ echo -e "${BLUE}================================================================
 echo -e "${BLUE}🛡️  Zero-Trust Multi-Layer Security Architecture Test Suite${NC}"
 echo -e "${BLUE}======================================================================${NC}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # ------------------------------------------------------------------------------
 # 1. 単体テストの実行
 # ------------------------------------------------------------------------------
-echo -e "\n${YELLOW}[TEST 1/5] Running Go Unit Tests (CSRF, XSS, Headers)...${NC}"
-cd /Users/hasegawa/Public/workspace/go/security-architecture/06_app_backend
-go test -v ./...
+echo -e "\n${YELLOW}[TEST 1/6] Running Go Unit Tests (CSRF, XSS, Headers)...${NC}"
+(cd "$SCRIPT_DIR/06_app_backend" && go test -v ./...)
 echo -e "${GREEN}✓ Unit tests passed successfully!${NC}"
 
 # ------------------------------------------------------------------------------
 # 2. SBOM Inspector の検証
 # ------------------------------------------------------------------------------
-echo -e "\n${YELLOW}[TEST 2/5] Verifying SBOM (Software Bill of Materials) Inspector...${NC}"
-cd /Users/hasegawa/Public/workspace/go/security-architecture
-go run 07_ci_cd_shift_left/sbom_inspector.go 07_ci_cd_shift_left/sample-sbom.spdx.json
+echo -e "\n${YELLOW}[TEST 2/6] Verifying SBOM (Software Bill of Materials) Inspector...${NC}"
+(cd "$SCRIPT_DIR" && go run 07_ci_cd_shift_left/sbom_inspector.go 07_ci_cd_shift_left/sample-sbom.spdx.json)
 echo -e "${GREEN}✓ SBOM analysis verified successfully!${NC}"
 
 # ------------------------------------------------------------------------------
 # 3. バックエンドサーバーの起動
 # ------------------------------------------------------------------------------
-echo -e "\n${YELLOW}[TEST 3/5] Starting Secure Go Backend Server on Port $PORT...${NC}"
+echo -e "\n${YELLOW}[TEST 3/6] Starting Secure Go Backend Server on Port $PORT...${NC}"
 kill $(lsof -t -i:$PORT 2>/dev/null) 2>/dev/null || true
 sleep 0.5
-PORT=$PORT go run 06_app_backend/main.go 06_app_backend/secrets.go &
+(cd "$SCRIPT_DIR" && PORT=$PORT go run 06_app_backend/main.go 06_app_backend/secrets.go) &
 SERVER_PID=$!
 sleep 1.5
 
@@ -163,6 +163,19 @@ else
     echo -e "${GREEN}✓ [PASS] Rate Limiter capacity verified within burst limit${NC}"
 fi
 
+# ------------------------------------------------------------------------------
+# 6. SOAR / Slack 自動インシデント通知の検証
+# ------------------------------------------------------------------------------
+echo -e "\n${YELLOW}[TEST 6/6] Verifying SOAR Incident Response & Slack Block Kit Dispatchers...${NC}"
+
+# (a) Go WAF -> Slack Notifier 単体テスト
+(cd "$SCRIPT_DIR/08_soar_incident_response" && go test -v ./...)
+echo -e "${GREEN}✓ [PASS] Go WAF SOAR Notifier verified successfully!${NC}"
+
+# (b) AI Guardrail -> Slack Block Kit 送信テスト
+(cd "$SCRIPT_DIR/../examples/ai_guardrail_poc" && python3 test_alerts_slack.py)
+echo -e "${GREEN}✓ [PASS] AI Guardrail Slack Block Kit Notifier verified successfully!${NC}"
+
 echo -e "\n${BLUE}======================================================================${NC}"
-echo -e "${GREEN}🎉 ALL 5 SECURITY VERIFICATION TESTS PASSED SUCCESSFULLY!${NC}"
+echo -e "${GREEN}🎉 ALL 6 SECURITY & SOAR VERIFICATION TESTS PASSED SUCCESSFULLY!${NC}"
 echo -e "${BLUE}======================================================================${NC}"
