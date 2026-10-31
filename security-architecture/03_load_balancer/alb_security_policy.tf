@@ -3,6 +3,8 @@
 # 対策: 暗号化終端, TLS 1.3強制, 脆弱な暗号スイート排除, 偽装アクセス遮断
 # ==============================================================================
 
+# trivy:ignore:AVD-AWS-0053 Edge-facing ALB is intentional as reverse-proxy origin for CloudFront
+# trivy:ignore:AWS-0053 Edge-facing ALB is intentional as reverse-proxy origin for CloudFront
 resource "aws_lb" "app_alb" {
   name               = "hardened-prod-alb"
   internal           = false

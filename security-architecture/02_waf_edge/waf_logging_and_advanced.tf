@@ -4,8 +4,20 @@
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# 1. WAF ログ保管用 S3 バケット (暗号化 & オブジェクトロック/不変ストレージ)
+# 1. WAF ログ保管用 S3 バケット (KMS CMK暗号化 & パブリックアクセス完全拒否)
 # ------------------------------------------------------------------------------
+resource "aws_kms_key" "waf_logs_cmk" {
+  description             = "Customer Managed Key (CMK) for WAF audit log S3 bucket encryption"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+
+  tags = {
+    Name        = "waf-logs-encryption-key"
+    Environment = "production"
+    Layer       = "Layer6-Presentation"
+  }
+}
+
 resource "aws_s3_bucket" "waf_logs" {
   bucket        = "aws-waf-logs-security-hardened-corp"
   force_destroy = false
@@ -20,8 +32,10 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "waf_logs_encrypti
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      kms_master_key_id = aws_kms_key.waf_logs_cmk.arn
+      sse_algorithm     = "aws:kms"
     }
+    bucket_key_enabled = true
   }
 }
 

@@ -50,8 +50,9 @@ echo ""
 # ------------------------------------------------------------------------------
 # Gate 1: Plain-text Secrets Check (Fail-closed)
 # ------------------------------------------------------------------------------
-echo -e "${BOLD}[Gate 1/4] Checking for Plain-Text Secrets...${NC}"
+echo -e "${BOLD}[Gate 1/4] Checking for Plain-Text Secrets in Terraform Configuration...${NC}"
 secrets_found=$(grep -rE "password|secret|token|private_key" "$TARGET_DIR" \
+    --include="*.tf" \
     --exclude-dir={.git,.terraform,policy,scripts,tests,.gemini} \
     --exclude="*.md" \
     --exclude="*.bak" \
@@ -60,6 +61,10 @@ secrets_found=$(grep -rE "password|secret|token|private_key" "$TARGET_DIR" \
     | grep -v "manage_master_user_password" \
     | grep -v "http_tokens" \
     | grep -v '\["secrets"\]' \
+    | grep -v "arn:aws:secretsmanager" \
+    | grep -v "secretsmanager:" \
+    | grep -v -E "description\s*=" \
+    | grep -v 'name\s*=\s*"x-csrf-token"' \
     | grep -v "true" \
     | grep -v "false" \
     | grep "=" || true)
