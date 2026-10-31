@@ -38,3 +38,17 @@ This tool uses **Trivy** to scan for misconfigurations and applies custom **OPA 
 - Network Perimeter Defense
 - Governance & Tagging
 - Resilience & Anti-Ransomware measures
+
+## CI/CD Security & Workflow Lockfiles
+
+This repository adopts **GitHub Actions Workflow Dependency Lockfiles** (`.github/workflows/actions.lock`) to prevent CI/CD supply chain attacks while maintaining human-readable action tags.
+
+- **Lockfile Verification**: Tested in CI via `.github/workflows/verify-lockfile.yml`
+- **Documentation**: See [docs/articles/github_actions_workflow_lockfiles_ga.md](docs/articles/github_actions_workflow_lockfiles_ga.md)
+
+## Security Architecture & Technical Articles
+
+Detailed architectural proposals, defense-in-depth implementations, and security evaluations:
+- [GitHub Actionsの「Workflow Lockfiles」がGAされたので実際に動かして検証してみた](docs/articles/github_actions_workflow_lockfiles_ga.md)
+- [Jev-Inspired Dynamic AI Guardrail & Multi-Layer Defense](docs/articles/ai_security_guardrail_jev.md)
+- [OSI-Based Zero-Trust Multi-Layer Security Architecture](docs/articles/zero_trust_defense_in_depth.md)

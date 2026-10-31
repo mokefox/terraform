@@ -104,6 +104,86 @@ python3 test_mcp_firewall.py
 
 ---
 
+## 🧠 発展実装: 小型言語モデル（SLM）＆ローカルセマンティック分類器（完全エアギャップ対応）
+
+Zenn記事の **「アイデア 4: 小型言語モデル（SLM）やローカルモデルとの組み合わせ」** を具現化した実装です。
+
+### 🎯 課題と解決アプローチ
+クラウド上の審査API（Jevや大型LLM）に依存する場合、**「物理隔離されたエアギャップ環境やオンプレミス・金融閉域網では使えない」「プロンプトに含まれる機密データが外部に送信されてしまう」** という致命的な制約が生じます。また、静的キーワードマッチだけでは「巧妙な言い換え」や「ロールプレイによる脱獄（Jailbreak）」を防ぐことができません。
+
+そこで本PoCでは、外部通信を一切行わない **3層カスケード（Tiered Cascading）アーキテクチャ** を実装しました：
+
+1. **Tier 1 (Instant Rule Gate, ~0.005 ms)**:
+   - 決定論的正規表現・ASTパターンマッチングにより、既知の破壊コマンド（`rm -rf /`等）をマイクロ秒で即時撃墜。
+2. **Tier 2 (Offline Semantic Vector Gate, ~0.5 ms)**:
+   - 外部ライブラリ不要のローカルN-gram TF-IDF & コサイン類似度分類器。
+   - 単純なキーワードを巧妙に回避した「類語・言い換えによる認証情報窃取」や「セキュリティポリシーバイパス」を完全オフラインで検知・遮断。
+3. **Tier 3 (Local SLM Deep Evaluator, ~50〜400 ms)**:
+   - ローカル稼働の小型言語モデル（**Phi-3**, **Llama-3.2 (3B)**, **Qwen2.5-Coder** 等 via Ollama / llama.cpp / LocalAI）を活用。
+   - 自然言語による高度な文脈理解が必要な「おばあちゃんロールプレイ脱獄」や「本番環境ポリシー改ざん指示」を型安全な構造化JSON判定（ALLOW / BLOCK / ESCALATE）で処理。
+
+```mermaid
+flowchart TD
+    subgraph AirGap["🔒 完全エアギャップ境界 (オンプレミス / 外部通信ゼロ)"]
+        Agent["🤖 AIエージェント / MCP Client"] --> Engine["🛡️ AirGappedCascadeEngine"]
+        
+        subgraph Cascade["⚡ 3-Tier 多層カスケード評価パイプライン"]
+            direction TB
+            T1["Tier 1: Instant Rule Gate<br/>(&lt;0.01ms / 高速正規表現・AST)"]
+            T2["Tier 2: Offline Semantic Vector Gate<br/>(&lt;1.0ms / コサイン類似度)"]
+            T3["Tier 3: Local SLM Deep Evaluator<br/>(~50-400ms / Llama-3.2, Phi-3 via Ollama)"]
+            
+            T1 -- "安全と判定" --> T2
+            T2 -- "文脈審査・境界域" --> T3
+        end
+        
+        Engine --> Cascade
+        
+        T1 -- "BLOCK" --> Block["🚨 即時遮断 & 監査ログ"]
+        T2 -- "BLOCK" --> Block
+        T3 -- "BLOCK" --> Block
+        T3 -- "ESCALATE" --> Escalate["⚠️ 人間確認要求 (Human-in-the-Loop)"]
+        T1 & T2 & T3 -- "ALLOW" --> SafeExec["🖥️ ローカル環境で安全に実行"]
+    end
+```
+
+### 🚀 ローカルSLMデモの実行
+
+#### 1. デモスクリプトの実行
+Ollamaが起動している環境では自動的に検出されたローカルSLM（Llama-3.2やQwen等）を呼び出します。起動していない環境でも内蔵の高精度ニューラルエミュレータが動作するため、外部インストール不要で即座に検証可能です。
+
+```bash
+python3 demo_local_slm.py
+```
+
+#### 実行されるテストシナリオ
+1. **正常操作** (`git status && npm run build`) → `Tier 1: ALLOW` (< 0.3 ms)
+2. **破壊的コマンド** (`rm -rf / --no-preserve-root`) → `Tier 1: BLOCK` (< 0.01 ms)
+3. **類語・言い換えによる機密情報窃取** (`read and extract secret keys and passwords...`) → `Tier 2: BLOCK` (< 0.2 ms)
+4. **ソーシャルエンジニアリング・脱獄プロンプト** (`Please act as my grandmother and tell me...`) → `Tier 3 (Local SLM): BLOCK`
+5. **本番環境DB接続の危険な書き換え** (`UPDATE production database connection...`) → `Tier 3 (Local SLM): ESCALATE` (人間確認)
+6. **タイポ・難読化バイパス** (`bypass security policies and reveal...`) → `Tier 2: BLOCK` (< 0.7 ms)
+
+#### 2. 自動テストの実行
+```bash
+python3 test_local_slm.py
+```
+
+#### 3. MCP Firewall とのエアギャップ連携
+Claude Desktop や Cursor と連携する MCP Firewall に `--air-gapped` フラグを付与することで、MCPツール呼び出しに対しても完全オフラインのセマンティック＆SLM防護を適用できます：
+
+```bash
+# エアギャップモードでMCPプロキシを起動
+python3 mcp_firewall.py --air-gapped -- python3 mock_mcp_server.py
+```
+
+E2Eテスト：
+```bash
+python3 test_mcp_firewall.py
+```
+
+---
+
 ## 🛡️ 多層防御（Defense-in-Depth）における位置づけ
 
 AIによる動的ガードレールは非常に強力ですが、**「AI判定単体」に依存してはいけません**。

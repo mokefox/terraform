@@ -19,18 +19,24 @@ import json
 import subprocess
 import threading
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 # Ensure local modules can be imported
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from guardrail import JevDecisionEngine, DecisionAction
+from local_slm_guardrail import AirGappedCascadeEngine
 from alerts import AlertNotifier, BOLD, RED, GREEN, CYAN, RESET
 
 
 class MCPFirewallProxy:
-    def __init__(self, target_command: List[str], log_file: str = "mcp_firewall_audit.log"):
+    def __init__(
+        self,
+        target_command: List[str],
+        log_file: str = "mcp_firewall_audit.log",
+        engine: Optional[Any] = None
+    ):
         self.target_command = target_command
-        self.engine = JevDecisionEngine()
+        self.engine = engine or JevDecisionEngine()
         self.notifier = AlertNotifier(log_file=log_file, output_stream=sys.stderr)
         self.process = None
 
@@ -155,18 +161,25 @@ class MCPFirewallProxy:
 
 def main():
     if len(sys.argv) < 2 or "--" not in sys.argv:
-        print(f"Usage: {sys.argv[0]} -- <target_mcp_command> [args...]", file=sys.stderr)
-        print("Example: python3 mcp_firewall.py -- python3 mock_mcp_server.py", file=sys.stderr)
+        print(f"Usage: {sys.argv[0]} [--air-gapped | --local-slm] -- <target_mcp_command> [args...]", file=sys.stderr)
+        print("Example: python3 mcp_firewall.py --air-gapped -- python3 mock_mcp_server.py", file=sys.stderr)
         sys.exit(1)
 
     delimiter_idx = sys.argv.index("--")
+    flags = sys.argv[1:delimiter_idx]
     target_command = sys.argv[delimiter_idx + 1:]
 
     if not target_command:
         print("Error: No target command specified after '--'", file=sys.stderr)
         sys.exit(1)
 
-    proxy = MCPFirewallProxy(target_command)
+    # Configure engine
+    if "--air-gapped" in flags or "--local-slm" in flags:
+        engine = AirGappedCascadeEngine()
+    else:
+        engine = JevDecisionEngine()
+
+    proxy = MCPFirewallProxy(target_command, engine=engine)
     proxy.run()
 
 

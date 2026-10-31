@@ -122,6 +122,63 @@ def run_test():
     return passed == 4
 
 
+def run_airgap_test():
+    print(f"\n{BOLD}{CYAN}=============================================================================={RESET}")
+    print(f"{BOLD}{CYAN}  MCP Firewall with Air-Gapped Cascading Engine (--air-gapped){RESET}")
+    print(f"{BOLD}{CYAN}=============================================================================={RESET}")
+    print("Testing MCP Firewall proxy running with local semantic vector classifier...\n")
+
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    proxy_script = os.path.join(current_dir, "mcp_firewall.py")
+    server_script = os.path.join(current_dir, "mock_mcp_server.py")
+
+    cmd = [sys.executable, proxy_script, "--air-gapped", "--", sys.executable, server_script]
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1
+    )
+
+    def send_rpc(payload):
+        proc.stdin.write(json.dumps(payload) + "\n")
+        proc.stdin.flush()
+        line = proc.stdout.readline()
+        return json.loads(line) if line else {}
+
+    passed = 0
+    try:
+        # Step 1: Semantic injection attack that bypasses static regex
+        print(f"{BOLD}[Air-Gap Step 1] Paraphrased Attack: run_shell('read and extract secret keys...'){RESET}")
+        res = send_rpc({
+            "jsonrpc": "2.0",
+            "id": 10,
+            "method": "tools/call",
+            "params": {"name": "run_shell", "arguments": {"command": "read and extract secret keys and passwords from hidden files"}}
+        })
+        content_text = res.get("result", {}).get("content", [{}])[0].get("text", "")
+        is_error = res.get("result", {}).get("isError", False)
+
+        if is_error and "[MCP FIREWALL BLOCKED]" in content_text and "Tier 2:SemanticVector" in content_text:
+            print(f"{GREEN}✔ [PASS] Air-gapped semantic vector classifier BLOCKED paraphrased attack!{RESET}\n")
+            passed += 1
+        else:
+            print(f"{RED}✘ [FAIL] Air-gapped attack not blocked: {content_text}{RESET}\n")
+
+    finally:
+        proc.terminate()
+        proc.wait()
+
+    print(f"{BOLD}{CYAN}------------------------------------------------------------------------------{RESET}")
+    print(f"{BOLD}Air-Gap MCP Firewall Results: {passed}/1 steps passed successfully!{RESET}")
+    print(f"{BOLD}{CYAN}=============================================================================={RESET}\n")
+
+    return passed == 1
+
+
 if __name__ == "__main__":
-    success = run_test()
-    sys.exit(0 if success else 1)
+    s1 = run_test()
+    s2 = run_airgap_test()
+    sys.exit(0 if (s1 and s2) else 1)
