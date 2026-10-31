@@ -1,11 +1,12 @@
 """
 Unit tests for OSI Reference Model Security Auditor & Auto-Remediation Tool
+Compatible with both standard unittest and pytest without external test dependencies.
 """
 
 import os
 import sys
 import tempfile
-import pytest
+import unittest
 
 # Ensure scripts directory is in sys.path
 SCRIPT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts"))
@@ -24,7 +25,7 @@ from osi_security_audit import (
 )
 
 
-class TestHclParser:
+class TestHclParser(unittest.TestCase):
     def test_clean_content(self):
         text = """
         # Line comment 1
@@ -35,10 +36,10 @@ class TestHclParser:
         }
         """
         cleaned = HclParser.clean_content(text)
-        assert "# Line comment 1" not in cleaned
-        assert "// Line comment 2" not in cleaned
-        assert "Block comment" not in cleaned
-        assert 'cidr_block = "10.0.0.0/16"' in cleaned
+        self.assertNotIn("# Line comment 1", cleaned)
+        self.assertNotIn("// Line comment 2", cleaned)
+        self.assertNotIn("Block comment", cleaned)
+        self.assertIn('cidr_block = "10.0.0.0/16"', cleaned)
 
     def test_parse_blocks(self):
         with tempfile.NamedTemporaryFile("w", suffix=".tf", delete=False) as f:
@@ -57,23 +58,24 @@ class TestHclParser:
 
         try:
             resources = HclParser.parse_blocks(f_path)
-            assert len(resources) == 2
-            assert resources[0].type == "aws_vpc"
-            assert resources[0].name == "test_vpc"
-            assert resources[0].attrs.get("cidr_block") == "10.0.0.0/16"
-            assert resources[1].type == "aws_subnet"
-            assert resources[1].name == "test_subnet"
+            self.assertEqual(len(resources), 2)
+            self.assertEqual(resources[0].type, "aws_vpc")
+            self.assertEqual(resources[0].name, "test_vpc")
+            self.assertEqual(resources[0].attrs.get("cidr_block"), "10.0.0.0/16")
+            self.assertEqual(resources[1].type, "aws_subnet")
+            self.assertEqual(resources[1].name, "test_subnet")
         finally:
-            os.remove(f_path)
+            if os.path.exists(f_path):
+                os.remove(f_path)
 
 
-class TestRulesConfig:
+class TestRulesConfig(unittest.TestCase):
     def test_default_config(self):
         config = RulesConfig()
-        assert config.is_enabled("L1-REGION-POLICY") is True
-        assert config.get_severity("L1-REGION-POLICY", "DEFAULT") == "DEFAULT"
-        assert config.is_suppressed("L1-REGION-POLICY", "res") is False
-        assert "ap-northeast-1" in config.get_setting("allowed_regions")
+        self.assertTrue(config.is_enabled("L1-REGION-POLICY"))
+        self.assertEqual(config.get_severity("L1-REGION-POLICY", "DEFAULT"), "DEFAULT")
+        self.assertFalse(config.is_suppressed("L1-REGION-POLICY", "res"))
+        self.assertIn("ap-northeast-1", config.get_setting("allowed_regions"))
 
     def test_custom_overrides(self):
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
@@ -97,57 +99,60 @@ class TestRulesConfig:
 
         try:
             config = RulesConfig(cfg_path)
-            assert config.is_enabled("L1-REGION-POLICY") is False
-            assert config.get_severity("L1-REGION-POLICY", "HIGH") == "LOW"
-            assert config.is_suppressed("L3-NETWORK-ACL", "aws_network_acl.ignored") is True
-            assert config.is_suppressed("L3-NETWORK-ACL", "aws_network_acl.other") is False
+            self.assertFalse(config.is_enabled("L1-REGION-POLICY"))
+            self.assertEqual(config.get_severity("L1-REGION-POLICY", "HIGH"), "LOW")
+            self.assertTrue(config.is_suppressed("L3-NETWORK-ACL", "aws_network_acl.ignored"))
+            self.assertFalse(config.is_suppressed("L3-NETWORK-ACL", "aws_network_acl.other"))
         finally:
-            os.remove(cfg_path)
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
 
 
-class TestOsiAuditorLayers:
-    @pytest.fixture
-    def temp_workspace(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            yield tmpdir
+class TestOsiAuditorLayers(unittest.TestCase):
+    def setUp(self):
+        self._temp_dir_obj = tempfile.TemporaryDirectory()
+        self.temp_workspace = self._temp_dir_obj.name
 
-    def test_l1_region_violation_and_remediation(self, temp_workspace):
-        tf_file = os.path.join(temp_workspace, "main.tf")
+    def tearDown(self):
+        self._temp_dir_obj.cleanup()
+
+    def test_l1_region_violation_and_remediation(self):
+        tf_file = os.path.join(self.temp_workspace, "main.tf")
         with open(tf_file, "w") as f:
             f.write("""
             resource "aws_s3_bucket" "b" {
                 region = "us-east-1"
             }
             """)
-        auditor = OsiAuditor(temp_workspace)
+        auditor = OsiAuditor(self.temp_workspace)
         auditor.load_codebase()
         auditor.run_audit()
 
         findings = [f for f in auditor.findings if f.check_id == "L1-REGION-POLICY"]
-        assert len(findings) == 1
-        assert findings[0].severity == "HIGH"
-        assert findings[0].code_remediation is not None
-        assert 'region = "ap-northeast-1"' in findings[0].code_remediation
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].severity, "HIGH")
+        self.assertIsNotNone(findings[0].code_remediation)
+        self.assertIn('region = "ap-northeast-1"', findings[0].code_remediation)
 
-    def test_l2_vpc_isolation(self, temp_workspace):
-        tf_file = os.path.join(temp_workspace, "main.tf")
+    def test_l2_vpc_isolation(self):
+        tf_file = os.path.join(self.temp_workspace, "main.tf")
         with open(tf_file, "w") as f:
             f.write("""
             resource "aws_instance" "ec2" {
                 ami = "ami-123456"
             }
             """)
-        auditor = OsiAuditor(temp_workspace)
+        auditor = OsiAuditor(self.temp_workspace)
         auditor.load_codebase()
         auditor.run_audit()
 
         findings = [f for f in auditor.findings if f.check_id == "L2-VPC-ISOLATION"]
-        assert len(findings) == 1
-        assert findings[0].severity == "CRITICAL"
-        assert 'resource "aws_vpc"' in findings[0].code_remediation
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].severity, "CRITICAL")
+        self.assertIn('resource "aws_vpc"', findings[0].code_remediation)
 
-    def test_l3_subnet_segregation(self, temp_workspace):
-        tf_file = os.path.join(temp_workspace, "vpc.tf")
+    def test_l3_subnet_segregation(self):
+        tf_file = os.path.join(self.temp_workspace, "vpc.tf")
         with open(tf_file, "w") as f:
             f.write("""
             resource "aws_vpc" "vpc-main" {
@@ -158,18 +163,18 @@ class TestOsiAuditorLayers:
                 cidr_block = "10.0.1.0/24"
             }
             """)
-        auditor = OsiAuditor(temp_workspace)
+        auditor = OsiAuditor(self.temp_workspace)
         auditor.load_codebase()
         auditor.run_audit()
 
         l3_findings = [f for f in auditor.findings if f.check_id == "L3-SUBNET-SEGREGATION"]
-        assert len(l3_findings) == 1
-        assert l3_findings[0].severity == "HIGH"
-        assert 'resource "aws_subnet" "private_subnet"' in l3_findings[0].code_remediation
-        assert l3_findings[0].diff_patch is not None
+        self.assertEqual(len(l3_findings), 1)
+        self.assertEqual(l3_findings[0].severity, "HIGH")
+        self.assertIn('resource "aws_subnet" "private_subnet"', l3_findings[0].code_remediation)
+        self.assertIsNotNone(l3_findings[0].diff_patch)
 
-    def test_l4_dangerous_management_ports(self, temp_workspace):
-        tf_file = os.path.join(temp_workspace, "sg.tf")
+    def test_l4_dangerous_management_ports(self):
+        tf_file = os.path.join(self.temp_workspace, "sg.tf")
         with open(tf_file, "w") as f:
             f.write("""
             resource "aws_security_group" "ssh_sg" {
@@ -183,16 +188,16 @@ class TestOsiAuditorLayers:
                 ip_protocol = "tcp"
             }
             """)
-        auditor = OsiAuditor(temp_workspace)
+        auditor = OsiAuditor(self.temp_workspace)
         auditor.load_codebase()
         auditor.run_audit()
 
         findings = [f for f in auditor.findings if f.check_id == "L4-MANAGEMENT-PORTS"]
-        assert len(findings) == 1
-        assert findings[0].severity == "CRITICAL"
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].severity, "CRITICAL")
 
-    def test_l7_waf_and_imdsv2(self, temp_workspace):
-        tf_file = os.path.join(temp_workspace, "app.tf")
+    def test_l7_waf_and_imdsv2(self):
+        tf_file = os.path.join(self.temp_workspace, "app.tf")
         with open(tf_file, "w") as f:
             f.write("""
             resource "aws_lb" "alb" {
@@ -203,23 +208,23 @@ class TestOsiAuditorLayers:
                 ami = "ami-123"
             }
             """)
-        auditor = OsiAuditor(temp_workspace)
+        auditor = OsiAuditor(self.temp_workspace)
         auditor.load_codebase()
         auditor.run_audit()
 
         waf_findings = [f for f in auditor.findings if f.check_id == "L7-WAF-PROTECTION"]
-        assert len(waf_findings) == 1
-        assert waf_findings[0].severity == "HIGH"
-        assert 'resource "aws_wafv2_web_acl"' in waf_findings[0].code_remediation
+        self.assertEqual(len(waf_findings), 1)
+        self.assertEqual(waf_findings[0].severity, "HIGH")
+        self.assertIn('resource "aws_wafv2_web_acl"', waf_findings[0].code_remediation)
 
         imdsv2_findings = [f for f in auditor.findings if f.check_id == "L7-IMDSV2-PROTECTION"]
-        assert len(imdsv2_findings) == 1
-        assert imdsv2_findings[0].severity == "CRITICAL"
-        assert 'http_tokens' in imdsv2_findings[0].code_remediation
-        assert 'required' in imdsv2_findings[0].code_remediation
+        self.assertEqual(len(imdsv2_findings), 1)
+        self.assertEqual(imdsv2_findings[0].severity, "CRITICAL")
+        self.assertIn('http_tokens', imdsv2_findings[0].code_remediation)
+        self.assertIn('required', imdsv2_findings[0].code_remediation)
 
 
-class TestRemediationManager:
+class TestRemediationManager(unittest.TestCase):
     def test_generate_unified_patch(self):
         with tempfile.NamedTemporaryFile("w", suffix=".tf", delete=False) as f:
             f.write('resource "aws_vpc" "main" {\n  cidr_block = "10.0.0.0/16"\n}\n')
@@ -239,11 +244,12 @@ class TestRemediationManager:
                 code_remediation='resource "aws_subnet" "private" {\n  cidr_block = "10.0.2.0/24"\n}\n'
             )
             patch = RemediationManager.generate_unified_patch([finding], os.path.dirname(f_path))
-            assert "--- a/" in patch
-            assert "+++ b/" in patch
-            assert '+resource "aws_subnet" "private"' in patch
+            self.assertIn("--- a/", patch)
+            self.assertIn("+++ b/", patch)
+            self.assertIn('+resource "aws_subnet" "private"', patch)
         finally:
-            os.remove(f_path)
+            if os.path.exists(f_path):
+                os.remove(f_path)
 
     def test_apply_fixes_dry_run_and_execution(self):
         with tempfile.NamedTemporaryFile("w", suffix=".tf", delete=False) as f:
@@ -266,24 +272,26 @@ class TestRemediationManager:
 
             # Dry-run
             dry_results = RemediationManager.apply_fixes([finding], dry_run=True, backup=True)
-            assert len(dry_results["applied"]) == 1
-            assert os.path.exists(f_path + ".bak") is False
+            self.assertEqual(len(dry_results["applied"]), 1)
+            self.assertFalse(os.path.exists(f_path + ".bak"))
             with open(f_path, "r") as f:
-                assert "private_subnet" not in f.read()
+                self.assertNotIn("private_subnet", f.read())
 
             # Real execution
             real_results = RemediationManager.apply_fixes([finding], dry_run=False, backup=True)
-            assert len(real_results["applied"]) == 1
-            assert os.path.exists(f_path + ".bak") is True
+            self.assertEqual(len(real_results["applied"]), 1)
+            self.assertTrue(os.path.exists(f_path + ".bak"))
             with open(f_path, "r") as f:
-                assert "private_subnet" in f.read()
+                self.assertIn("private_subnet", f.read())
 
-            os.remove(f_path + ".bak")
+            if os.path.exists(f_path + ".bak"):
+                os.remove(f_path + ".bak")
         finally:
-            os.remove(f_path)
+            if os.path.exists(f_path):
+                os.remove(f_path)
 
 
-class TestMermaidGenerator:
+class TestMermaidGenerator(unittest.TestCase):
     def test_mermaid_generation(self):
         sg_res = HclResource(
             kind="resource",
@@ -309,6 +317,10 @@ class TestMermaidGenerator:
         )
 
         chart = MermaidGenerator.generate({"alb_sg": sg_res}, [rule_res])
-        assert "graph TB" in chart
-        assert "subgraph External" in chart
-        assert "Internet -->|\"TCP:443\"| sg_alb_sg" in chart
+        self.assertIn("graph TB", chart)
+        self.assertIn("subgraph External", chart)
+        self.assertIn('Internet -->|"TCP:443"| sg_alb_sg', chart)
+
+
+if __name__ == "__main__":
+    unittest.main()
