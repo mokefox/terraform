@@ -10,7 +10,25 @@ resource "aws_kms_alias" "athena_key_alias" {
 }
 
 resource "aws_s3_bucket" "data_bucket" {
-  bucket = format("%s-%s-data", var.project, var.environment)
+  bucket              = format("%s-%s-data", var.project, var.environment)
+  object_lock_enabled = true # ランサムウェアによるデータ即時破壊・改竄を防止
+}
+
+resource "aws_s3_bucket_versioning" "data_bucket_versioning" {
+  bucket = aws_s3_bucket.data_bucket.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_object_lock_configuration" "data_bucket_lock" {
+  bucket = aws_s3_bucket.data_bucket.id
+  rule {
+    default_retention {
+      mode = "COMPLIANCE" # rootアカウントでも削除不可
+      days = 90
+    }
+  }
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "data_bucket_encryption" {

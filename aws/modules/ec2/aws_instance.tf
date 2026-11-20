@@ -17,10 +17,11 @@ resource "aws_instance" "app" {
     device_name = var.device_name
   }
 
-  # 3. IMDS v2 の必須化 (Credential protection)
+  # 3. IMDS v2 の必須化 & ホップ数制限 (Credential protection & Anti-SSRF Bypass)
   metadata_options {
-    http_endpoint = "enabled"
-    http_tokens   = "required"
+    http_endpoint               = "enabled"
+    http_tokens                 = "required" # IMDSv2強制 (トークン必須)
+    http_put_response_hop_limit = 1          # 多段プロキシやコンテナ経由のトークン不正取得を遮断
   }
 
   vpc_security_group_ids = var.security_group_ids
